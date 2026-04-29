@@ -25,6 +25,7 @@ import {
   RecurringBookingOutput_2024_08_13,
   RescheduleBookingInput,
 } from "@calcom/platform-types";
+import { Prisma } from "@calcom/prisma";
 import type { PrismaClient } from "@calcom/prisma";
 import type { EventType, Team, User } from "@calcom/prisma/client";
 import {
@@ -40,6 +41,7 @@ import {
 import { Request } from "express";
 import { DateTime } from "luxon";
 import { z } from "zod";
+import { SupportBookingSearchInput_2024_08_13 } from "@/platform/bookings/2024-08-13/inputs/support-booking-search.input";
 import { CalendarLink } from "@/platform/bookings/2024-08-13/outputs/calendar-links.output";
 import { BookingsRepository_2024_08_13 } from "@/platform/bookings/2024-08-13/repositories/bookings.repository";
 import { ErrorsBookingsService_2024_08_13 } from "@/platform/bookings/2024-08-13/services/errors.service";
@@ -70,6 +72,15 @@ type CreatedBooking = {
   uid: string;
   start: string;
   isPlatformManagedUserBooking?: boolean;
+};
+
+type SupportBookingSearchRow = {
+  uid: string;
+  title: string;
+  status: string;
+  startTime: Date;
+  endTime: Date;
+  attendeeEmail: string | null;
 };
 
 const eventTypeBookingFieldSchema = z
@@ -707,6 +718,93 @@ export class BookingsService_2024_08_13 {
 
     return {
       bookings: formattedBookings,
+      pagination,
+    };
+  }
+
+  async searchBookingsForSupport(queryParams: SupportBookingSearchInput_2024_08_13, user: ApiAuthGuardUser) {
+    if (!user.isSystemAdmin) {
+      throw new ForbiddenException("Only system admins can use support booking search.");
+    }
+
+    const skip = Math.abs(queryParams.skip ?? 0);
+    const take = Math.min(Math.abs(queryParams.take ?? 25), 100);
+    const whereConditions: Prisma.Sql[] = [];
+
+    if (queryParams.attendeeEmail) {
+      whereConditions.push(
+        Prisma.sql`EXISTS (
+          SELECT 1
+          FROM "Attendee" "att"
+          WHERE "att"."bookingId" = "b"."id"
+            AND "att"."email" ILIKE ${`%${queryParams.attendeeEmail}%`}
+        )`
+      );
+    }
+
+    if (queryParams.eventTitle) {
+      whereConditions.push(Prisma.sql`"b"."title" ILIKE ${`%${queryParams.eventTitle}%`}`);
+    }
+
+    if (queryParams.status) {
+      whereConditions.push(Prisma.sql`"b"."status" = ${queryParams.status}`);
+    }
+
+    if (queryParams.dateFrom) {
+      whereConditions.push(Prisma.sql`"b"."startTime" >= ${new Date(queryParams.dateFrom)}`);
+    }
+
+    if (queryParams.dateTo) {
+      whereConditions.push(Prisma.sql`"b"."startTime" <= ${new Date(queryParams.dateTo)}`);
+    }
+
+    if (queryParams.dateFrom && queryParams.dateTo) {
+      const fromDate = new Date(queryParams.dateFrom);
+      const toDate = new Date(queryParams.dateTo);
+      if (fromDate > toDate) {
+        throw new BadRequestException("dateFrom must be before or equal to dateTo.");
+      }
+    }
+
+    const whereClause =
+      whereConditions.length > 0
+        ? Prisma.sql`WHERE ${Prisma.join(whereConditions, Prisma.sql` AND `)}`
+        : Prisma.sql``;
+
+    const [rows, countRows] = await Promise.all([
+      this.prismaReadService.prisma.$queryRaw<SupportBookingSearchRow[]>(Prisma.sql`
+        SELECT
+          "b"."uid",
+          "b"."title",
+          "b"."status",
+          "b"."startTime",
+          "b"."endTime",
+          MIN("a"."email") AS "attendeeEmail"
+        FROM "Booking" "b"
+        LEFT JOIN "Attendee" "a" ON "a"."bookingId" = "b"."id"
+        ${whereClause}
+        GROUP BY "b"."id"
+        ORDER BY "b"."startTime" DESC
+        LIMIT ${take}
+        OFFSET ${skip}
+      `),
+      this.prismaReadService.prisma.$queryRaw<{ totalCount: bigint | number }[]>(Prisma.sql`
+        SELECT COUNT(*)::bigint AS "totalCount"
+        FROM "Booking" "b"
+        ${whereClause}
+      `),
+    ]);
+
+    const totalCountRaw = countRows[0]?.totalCount ?? 0;
+    const totalCount = typeof totalCountRaw === "bigint" ? Number(totalCountRaw) : totalCountRaw;
+    const pagination = getPagination({ skip, take, totalCount });
+
+    return {
+      bookings: rows.map((booking) => ({
+        ...booking,
+        startTime: booking.startTime.toISOString(),
+        endTime: booking.endTime.toISOString(),
+      })),
       pagination,
     };
   }
