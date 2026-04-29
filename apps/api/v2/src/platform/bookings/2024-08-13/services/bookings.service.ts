@@ -26,6 +26,7 @@ import {
   RescheduleBookingInput,
 } from "@calcom/platform-types";
 import type { PrismaClient } from "@calcom/prisma";
+import type { BookingStatus } from "@calcom/prisma/client";
 import type { EventType, Team, User } from "@calcom/prisma/client";
 import {
   BadRequestException,
@@ -41,6 +42,7 @@ import { Request } from "express";
 import { DateTime } from "luxon";
 import { z } from "zod";
 import { CalendarLink } from "@/platform/bookings/2024-08-13/outputs/calendar-links.output";
+import { SupportBookingsSearchInput_2024_08_13 } from "@/platform/bookings/2024-08-13/inputs/support-bookings-search.input";
 import { BookingsRepository_2024_08_13 } from "@/platform/bookings/2024-08-13/repositories/bookings.repository";
 import { ErrorsBookingsService_2024_08_13 } from "@/platform/bookings/2024-08-13/services/errors.service";
 import { InputBookingsService_2024_08_13 } from "@/platform/bookings/2024-08-13/services/input.service";
@@ -708,6 +710,94 @@ export class BookingsService_2024_08_13 {
     return {
       bookings: formattedBookings,
       pagination,
+    };
+  }
+
+  async supportSearchBookings(
+    queryParams: SupportBookingsSearchInput_2024_08_13,
+    user: { id: number; orgId?: number }
+  ) {
+    const skip = Math.abs(queryParams.skip ?? 0);
+    const take = Math.abs(queryParams.take ?? 50);
+
+    const startDateFrom = queryParams.startDateFrom ? new Date(queryParams.startDateFrom) : undefined;
+    const startDateTo = queryParams.startDateTo ? new Date(queryParams.startDateTo) : undefined;
+
+    if (startDateFrom && Number.isNaN(startDateFrom.getTime())) {
+      throw new BadRequestException("Invalid startDateFrom. Use an ISO 8601 datetime.");
+    }
+
+    if (startDateTo && Number.isNaN(startDateTo.getTime())) {
+      throw new BadRequestException("Invalid startDateTo. Use an ISO 8601 datetime.");
+    }
+
+    if (startDateFrom && startDateTo && startDateFrom > startDateTo) {
+      throw new BadRequestException("startDateFrom must be before or equal to startDateTo.");
+    }
+
+    const { bookingIds, totalCount } = await this.bookingsRepository.supportSearchBookingIds({
+      attendeeEmail: queryParams.attendeeEmail?.trim() || undefined,
+      eventTitle: queryParams.eventTitle?.trim() || undefined,
+      orgId: user.orgId,
+      skip,
+      startDateFrom,
+      startDateTo,
+      status: queryParams.status?.toUpperCase() as BookingStatus | undefined,
+      take,
+      userId: user.id,
+    });
+
+    if (!bookingIds.length) {
+      return {
+        bookings: [],
+        pagination: getPagination({ skip, take, totalCount }),
+      };
+    }
+
+    const bookings = await this.bookingsRepository.getByIdsWithAttendeesWithBookingSeatAndUserAndEvent(
+      bookingIds
+    );
+    const bookingMap = new Map(bookings.map((booking) => [booking.id, booking]));
+    const orderedBookings = bookingIds.map((id) => bookingMap.get(id));
+
+    const formattedBookings: (
+      | BookingOutput_2024_08_13
+      | RecurringBookingOutput_2024_08_13
+      | GetSeatedBookingOutput_2024_08_13
+      | GetRecurringSeatedBookingOutput_2024_08_13
+    )[] = [];
+
+    for (const booking of orderedBookings) {
+      if (!booking) {
+        continue;
+      }
+
+      const formatted = {
+        ...booking,
+        eventType: booking.eventType,
+        eventTypeId: booking.eventTypeId,
+        startTime: new Date(booking.startTime),
+        endTime: new Date(booking.endTime),
+        absentHost: !!booking.noShowHost,
+      };
+
+      const isRecurring = !!formatted.recurringEventId;
+      const isSeated = !!formatted.eventType?.seatsPerTimeSlot;
+
+      if (isRecurring && !isSeated) {
+        formattedBookings.push(this.outputService.getOutputRecurringBooking(formatted));
+      } else if (isRecurring && isSeated) {
+        formattedBookings.push(this.outputService.getOutputRecurringSeatedBooking(formatted, true));
+      } else if (isSeated) {
+        formattedBookings.push(await this.outputService.getOutputSeatedBooking(formatted, true));
+      } else {
+        formattedBookings.push(await this.outputService.getOutputBooking(formatted));
+      }
+    }
+
+    return {
+      bookings: formattedBookings,
+      pagination: getPagination({ skip, take, totalCount }),
     };
   }
 

@@ -1,8 +1,21 @@
 import { bookingWithUserAndEventDetailsSelect } from "@calcom/platform-libraries/bookings";
 import type { Prisma } from "@calcom/prisma/client";
+import type { BookingStatus } from "@calcom/prisma/client";
 import { Injectable } from "@nestjs/common";
 import { PrismaReadService } from "@/modules/prisma/prisma-read.service";
 import { PrismaWriteService } from "@/modules/prisma/prisma-write.service";
+
+type SupportBookingsSearchFilters = {
+  attendeeEmail?: string;
+  eventTitle?: string;
+  status?: BookingStatus;
+  startDateFrom?: Date;
+  startDateTo?: Date;
+  skip: number;
+  take: number;
+  userId: number;
+  orgId?: number;
+};
 
 @Injectable()
 export class BookingsRepository_2024_08_13 {
@@ -251,5 +264,88 @@ export class BookingsRepository_2024_08_13 {
       data: body,
       select: { uid: true },
     });
+  }
+
+  async supportSearchBookingIds(filters: SupportBookingsSearchFilters) {
+    const whereClauses: string[] = [];
+    const params: unknown[] = [];
+
+    const pushParam = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+
+    if (filters.orgId) {
+      const userIdParam = pushParam(filters.userId);
+      const orgIdParam = pushParam(filters.orgId);
+      whereClauses.push(
+        `(b."userId" = ${userIdParam} OR b."userId" IN (SELECT p."userId" FROM "Profile" p WHERE p."organizationId" = ${orgIdParam}))`
+      );
+    } else {
+      const userIdParam = pushParam(filters.userId);
+      whereClauses.push(`b."userId" = ${userIdParam}`);
+    }
+
+    if (filters.attendeeEmail) {
+      const attendeeEmailParam = pushParam(`%${filters.attendeeEmail}%`);
+      whereClauses.push(`a."email" ILIKE ${attendeeEmailParam}`);
+    }
+
+    if (filters.eventTitle) {
+      const eventTitleParam = pushParam(`%${filters.eventTitle}%`);
+      whereClauses.push(`b."title" ILIKE ${eventTitleParam}`);
+    }
+
+    if (filters.status) {
+      const statusParam = pushParam(filters.status);
+      whereClauses.push(`b."status" = ${statusParam}::"BookingStatus"`);
+    }
+
+    if (filters.startDateFrom) {
+      const startDateFromParam = pushParam(filters.startDateFrom);
+      whereClauses.push(`b."startTime" >= ${startDateFromParam}::timestamptz`);
+    }
+
+    if (filters.startDateTo) {
+      const startDateToParam = pushParam(filters.startDateTo);
+      whereClauses.push(`b."startTime" <= ${startDateToParam}::timestamptz`);
+    }
+
+    const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+    const fromSql = `
+      FROM "Booking" b
+      LEFT JOIN "Attendee" a ON a."bookingId" = b."id"
+    `;
+
+    const countQuery = `
+      SELECT COUNT(DISTINCT b."id")::int AS "totalCount"
+      ${fromSql}
+      ${whereSql}
+    `;
+
+    const countResult = await this.dbRead.prisma.$queryRawUnsafe<{ totalCount: number }[]>(
+      countQuery,
+      ...params
+    );
+
+    const skipParam = pushParam(filters.skip);
+    const takeParam = pushParam(filters.take);
+
+    const idsQuery = `
+      SELECT DISTINCT b."id" AS "id", b."startTime"
+      ${fromSql}
+      ${whereSql}
+      ORDER BY b."startTime" DESC
+      OFFSET ${skipParam}
+      LIMIT ${takeParam}
+    `;
+
+    const bookingIds = await this.dbRead.prisma.$queryRawUnsafe<{ id: number }[]>(idsQuery, ...params);
+
+    return {
+      bookingIds: bookingIds.map((booking) => booking.id),
+      totalCount: countResult[0]?.totalCount ?? 0,
+    };
   }
 }

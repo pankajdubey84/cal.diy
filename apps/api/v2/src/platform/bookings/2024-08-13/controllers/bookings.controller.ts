@@ -47,6 +47,7 @@ import { Request } from "express";
 import { BookingPbacGuard } from "@/platform/bookings/2024-08-13/guards/booking-pbac.guard";
 import { BookingUidGuard } from "@/platform/bookings/2024-08-13/guards/booking-uid.guard";
 import { BookingReferencesFilterInput_2024_08_13 } from "@/platform/bookings/2024-08-13/inputs/booking-references-filter.input";
+import { SupportBookingsSearchInput_2024_08_13 } from "@/platform/bookings/2024-08-13/inputs/support-bookings-search.input";
 import { BookingReferencesOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/booking-references.output";
 import { CalendarLinksOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/calendar-links.output";
 import { CancelBookingOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/cancel-booking.output";
@@ -184,6 +185,32 @@ export class BookingsController_2024_08_13 {
     return {
       status: SUCCESS_STATUS,
       data: booking,
+    };
+  }
+
+  @Get("/support-search")
+  @UseGuards(ApiAuthGuard)
+  @ApiHeader(API_KEY_OR_ACCESS_TOKEN_HEADER)
+  @Permissions([BOOKING_READ])
+  @ApiOperation({
+    summary: "Search bookings for support workflows",
+    description:
+      "Search bookings by attendee email, event title, booking status, and booking date range. Designed for support teams with partial customer details.",
+  })
+  async supportSearchBookings(
+    @Query() queryParams: SupportBookingsSearchInput_2024_08_13,
+    @GetUser() user: ApiAuthGuardUser
+  ): Promise<GetBookingsOutput_2024_08_13> {
+    const profile = this.usersService.getUserMainProfile(user);
+    const { bookings, pagination } = await this.bookingsService.supportSearchBookings(queryParams, {
+      id: user.id,
+      orgId: profile?.organizationId ?? undefined,
+    });
+
+    return {
+      status: SUCCESS_STATUS,
+      data: bookings,
+      pagination,
     };
   }
 
