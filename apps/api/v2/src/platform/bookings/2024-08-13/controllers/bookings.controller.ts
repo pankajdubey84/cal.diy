@@ -47,6 +47,7 @@ import { Request } from "express";
 import { BookingPbacGuard } from "@/platform/bookings/2024-08-13/guards/booking-pbac.guard";
 import { BookingUidGuard } from "@/platform/bookings/2024-08-13/guards/booking-uid.guard";
 import { BookingReferencesFilterInput_2024_08_13 } from "@/platform/bookings/2024-08-13/inputs/booking-references-filter.input";
+import { SupportBookingSearchInput_2024_08_13 } from "@/platform/bookings/2024-08-13/inputs/support-booking-search.input";
 import { BookingReferencesOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/booking-references.output";
 import { CalendarLinksOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/calendar-links.output";
 import { CancelBookingOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/cancel-booking.output";
@@ -54,6 +55,7 @@ import { CreateBookingOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/o
 import { MarkAbsentBookingOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/mark-absent.output";
 import { ReassignBookingOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/reassign-booking.output";
 import { RescheduleBookingOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/reschedule-booking.output";
+import { SupportBookingSearchOutput_2024_08_13 } from "@/platform/bookings/2024-08-13/outputs/support-booking-search.output";
 import { BookingReferencesService_2024_08_13 } from "@/platform/bookings/2024-08-13/services/booking-references.service";
 import { BookingsService_2024_08_13 } from "@/platform/bookings/2024-08-13/services/bookings.service";
 import { CalVideoService } from "@/platform/bookings/2024-08-13/services/cal-video.service";
@@ -285,6 +287,28 @@ export class BookingsController_2024_08_13 {
       id: user.id,
       orgId: profile?.organizationId ?? undefined,
     });
+
+    return {
+      status: SUCCESS_STATUS,
+      data: bookings,
+      pagination,
+    };
+  }
+
+  @Get("/support/search")
+  @UseGuards(ApiAuthGuard)
+  @ApiHeader(API_KEY_OR_ACCESS_TOKEN_HEADER)
+  @Permissions([BOOKING_READ])
+  @ApiOperation({
+    summary: "Search bookings for support operations",
+    description:
+      "Flexible booking lookup for support teams using optional attendee email, event title, status, and date-range filters.",
+  })
+  async searchBookingsForSupport(
+    @Query() queryParams: SupportBookingSearchInput_2024_08_13,
+    @GetUser() user: ApiAuthGuardUser
+  ): Promise<SupportBookingSearchOutput_2024_08_13> {
+    const { bookings, pagination } = await this.bookingsService.searchBookingsForSupport(queryParams, user);
 
     return {
       status: SUCCESS_STATUS,
