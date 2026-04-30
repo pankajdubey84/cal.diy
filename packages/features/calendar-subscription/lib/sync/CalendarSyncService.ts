@@ -4,7 +4,7 @@ import handleCancelBooking from "@calcom/features/bookings/lib/handleCancelBooki
 import type { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
 import type { CalendarSubscriptionEventItem } from "@calcom/features/calendar-subscription/lib/CalendarSubscriptionPort.interface";
 import logger from "@calcom/lib/logger";
-import { safeStringify } from "@calcom/lib/safeStringify";
+import { errorDetailsForLogs } from "@calcom/lib/safeStringify";
 import type { SelectedCalendar } from "@calcom/prisma/client";
 import { metrics } from "@sentry/nextjs";
 
@@ -85,8 +85,9 @@ export class CalendarSyncService {
       return;
     }
 
+    let booking: BookingWithEventType | undefined;
     try {
-      const booking = await this.deps.bookingRepository.findBookingByUidWithEventType({ bookingUid });
+      booking = await this.deps.bookingRepository.findBookingByUidWithEventType({ bookingUid });
       if (!booking) {
         log.debug("Unable to sync, booking not found in database", { bookingUid });
         return;
@@ -136,7 +137,15 @@ export class CalendarSyncService {
         attributes: { status: "success" },
       });
     } catch (error) {
-      log.error("Failed to cancel booking from calendar sync", { bookingUid, error: safeStringify(error) });
+      const { primaryAttendeeEmail, attendeeEmails } = attendeeDebugFromBooking(booking);
+      log.error("Failed to cancel booking from calendar sync", {
+        bookingUid,
+        bookingId: booking?.id,
+        primaryAttendeeEmail,
+        attendeeEmails,
+        calendarEvent: calendarEventDebug(event),
+        error: errorDetailsForLogs(error),
+      });
 
       metrics.count("calendar.sync.cancelBooking.calls", 1, {
         attributes: { status: "error" },
@@ -160,8 +169,9 @@ export class CalendarSyncService {
       return;
     }
 
+    let booking: BookingWithEventType | undefined;
     try {
-      const booking = await this.deps.bookingRepository.findBookingByUidWithEventType({ bookingUid });
+      booking = await this.deps.bookingRepository.findBookingByUidWithEventType({ bookingUid });
       if (!booking) {
         log.debug("Unable to sync, booking not found in database", { bookingUid });
         return;
@@ -220,9 +230,14 @@ export class CalendarSyncService {
         attributes: { status: "success" },
       });
     } catch (error) {
+      const { primaryAttendeeEmail, attendeeEmails } = attendeeDebugFromBooking(booking);
       log.error("Failed to reschedule booking from calendar sync", {
         bookingUid,
-        error: safeStringify(error),
+        bookingId: booking?.id,
+        primaryAttendeeEmail,
+        attendeeEmails,
+        calendarEvent: calendarEventDebug(event),
+        error: errorDetailsForLogs(error),
       });
 
       metrics.count("calendar.sync.rescheduleBooking.calls", 1, {
@@ -238,6 +253,31 @@ export class CalendarSyncService {
 export type BookingWithEventType = NonNullable<
   Awaited<ReturnType<BookingRepository["findBookingByUidWithEventType"]>>
 >;
+
+function attendeeDebugFromBooking(booking: BookingWithEventType | undefined) {
+  if (!booking) {
+    return {
+      primaryAttendeeEmail: null as string | null,
+      attendeeEmails: [] as string[],
+    };
+  }
+  const attendeeEmails = (booking.attendees ?? [])
+    .map((a) => a.email)
+    .filter((e): e is string => typeof e === "string" && e.length > 0);
+  return {
+    primaryAttendeeEmail: attendeeEmails[0] ?? booking.userPrimaryEmail ?? null,
+    attendeeEmails,
+  };
+}
+
+function calendarEventDebug(event: CalendarSubscriptionEventItem) {
+  return {
+    calendarEventId: event.id,
+    iCalUID: event.iCalUID,
+    status: event.status,
+    summary: event.summary,
+  };
+}
 
 type RescheduleBookingData = CreateRegularBookingData & {
   responses: Record<string, unknown>;

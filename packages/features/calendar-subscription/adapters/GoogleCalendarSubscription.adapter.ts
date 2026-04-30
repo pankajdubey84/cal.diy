@@ -132,17 +132,38 @@ export class GoogleCalendarSubscriptionAdapter implements ICalendarSubscriptionP
     }
 
     const events: calendar_v3.Schema$Event[] = [];
-    do {
-      const { data }: { data: calendar_v3.Schema$Events } = await client.events.list(params);
+    try {
+      do {
+        const { data }: { data: calendar_v3.Schema$Events } = await client.events.list(params);
 
-      syncToken = data.nextSyncToken || syncToken;
-      pageToken = data.nextPageToken ?? null;
-      if (pageToken) {
-        params.pageToken = pageToken;
+        syncToken = data.nextSyncToken || syncToken;
+        pageToken = data.nextPageToken ?? null;
+        if (pageToken) {
+          params.pageToken = pageToken;
+        }
+
+        events.push(...(data.items || []));
+      } while (pageToken);
+    } catch (err) {
+      let providerResponse: string | undefined;
+      if (err && typeof err === "object" && "response" in err) {
+        const data = (err as { response?: { data?: unknown } }).response?.data;
+        if (data !== undefined) {
+          providerResponse = typeof data === "string" ? data : JSON.stringify(data);
+        }
       }
-
-      events.push(...(data.items || []));
-    } while (pageToken);
+      const wrapped = new Error(
+        err instanceof Error ? err.message : "Failed to fetch Google Calendar events"
+      ) as Error & { providerResponse?: string; cause?: unknown };
+      wrapped.providerResponse = providerResponse;
+      wrapped.cause = err;
+      log.error("Google Calendar events.list failed", {
+        externalId: selectedCalendar.externalId,
+        providerResponse,
+        error: err instanceof Error ? err.message : err,
+      });
+      throw wrapped;
+    }
 
     return {
       provider: "google_calendar",

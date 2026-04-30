@@ -14,3 +14,29 @@ export function safeStringify(obj: unknown) {
     return obj;
   }
 }
+
+/** Structured error fields for support/debug logs (webhooks, sync, etc.). */
+export function errorDetailsForLogs(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) {
+    return { raw: safeStringify(error) };
+  }
+  const details: Record<string, unknown> = {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+  };
+  const withExtras = error as Error & {
+    providerResponse?: string;
+    statusCode?: number;
+  };
+  if (withExtras.providerResponse !== undefined) {
+    details.providerResponse = withExtras.providerResponse;
+  }
+  if (withExtras.statusCode !== undefined) {
+    details.statusCode = withExtras.statusCode;
+  }
+  if ("cause" in error && error.cause !== undefined) {
+    details.cause = errorDetailsForLogs(error.cause);
+  }
+  return details;
+}
