@@ -10,6 +10,12 @@ const LINKS = [
     href: "/settings/admin/playground/date-range-filter",
     icon: "calendar-days" as const,
   },
+  {
+    title: "Booking export (support CSV)",
+    description: "Generate a booking CSV with a custom filename for ticket correlation",
+    href: "/settings/admin/playground/booking-export",
+    icon: "download" as const,
+  },
 ];
 
 export const generateMetadata = async () =>
