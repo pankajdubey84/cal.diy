@@ -10,6 +10,7 @@ import { getTeamFeatureRepository } from "@calcom/features/di/containers/TeamFea
 import { getUserFeatureRepository } from "@calcom/features/di/containers/UserFeatureRepository";
 import { SelectedCalendarRepository } from "@calcom/features/selectedCalendar/repositories/SelectedCalendarRepository";
 import logger from "@calcom/lib/logger";
+import { errorDetailsForLogs } from "@calcom/lib/safeStringify";
 import { prisma } from "@calcom/prisma";
 import { defaultResponderForAppDir } from "@calcom/web/app/api/defaultResponderForAppDir";
 import type { Params } from "app/_types";
@@ -78,10 +79,23 @@ async function postHandler(request: NextRequest, ctx: { params: Promise<Params> 
       return NextResponse.json({ message: "No cache or sync enabled" }, { status: 200 });
     }
 
-    await calendarSubscriptionService.processWebhook(providerFromParams, request);
+    const bodyText = await request.text();
+    const webhookDiagnostics = {
+      bodyText,
+      headers: Object.fromEntries(request.headers.entries()),
+    };
+    const replayRequest = new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: bodyText.length > 0 ? bodyText : undefined,
+    });
+
+    await calendarSubscriptionService.processWebhook(providerFromParams, replayRequest, webhookDiagnostics);
     return NextResponse.json({ message: "Webhook processed" }, { status: 200 });
   } catch (error) {
-    log.error("Error processing webhook", { error });
+    log.error("Error processing calendar webhook (route handler)", {
+      error: errorDetailsForLogs(error),
+    });
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ message }, { status: 500 });
   }

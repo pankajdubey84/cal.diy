@@ -854,6 +854,14 @@ export class BookingRepository implements IBookingRepository {
       },
       include: {
         eventType: true,
+        attendees: {
+          select: {
+            email: true,
+          },
+          orderBy: {
+            id: "asc",
+          },
+        },
       },
     });
   }

@@ -8,22 +8,21 @@ vi.mock("next/server", () => ({
     url: string;
     method: string;
     nextUrl: { searchParams: URLSearchParams };
-    private _headers: Map<string, string>;
+    headers: Headers;
+    private _body: string;
 
-    constructor(url: string, options: { method?: string } = {}) {
+    constructor(
+      url: string,
+      options: { method?: string; body?: string; headers?: HeadersInit } = {}
+    ) {
       this.url = url;
       this.method = options.method || "POST";
-      this._headers = new Map();
+      this.headers = new Headers(options.headers);
+      this._body = options.body ?? "";
       this.nextUrl = { searchParams: new URLSearchParams(url.split("?")[1] || "") };
     }
 
-    headers = {
-      get: (key: string): string | null => this._headers.get(key.toLowerCase()) || null,
-      set: (key: string, value: string): void => {
-        this._headers.set(key.toLowerCase(), value);
-      },
-      has: (key: string): boolean => this._headers.has(key.toLowerCase()),
-    };
+    text = async () => this._body;
   },
   NextResponse: {
     json: vi.fn((body, init) => ({
@@ -68,7 +67,14 @@ describe("/api/webhooks/calendar-subscription/[provider]", () => {
       });
 
       expect(response.status).toBe(200);
-      expect(mockProcessWebhook).toHaveBeenCalledWith("google_calendar", request);
+      expect(mockProcessWebhook).toHaveBeenCalledWith(
+        "google_calendar",
+        expect.any(Request),
+        expect.objectContaining({
+          bodyText: "",
+          headers: expect.any(Object),
+        })
+      );
     }, 10000);
 
     test("should accept office365_calendar provider", async () => {
@@ -93,7 +99,14 @@ describe("/api/webhooks/calendar-subscription/[provider]", () => {
       });
 
       expect(response.status).toBe(200);
-      expect(mockProcessWebhook).toHaveBeenCalledWith("office365_calendar", request);
+      expect(mockProcessWebhook).toHaveBeenCalledWith(
+        "office365_calendar",
+        expect.any(Request),
+        expect.objectContaining({
+          bodyText: "",
+          headers: expect.any(Object),
+        })
+      );
     });
 
     test("should reject unsupported provider", async () => {
@@ -161,7 +174,14 @@ describe("/api/webhooks/calendar-subscription/[provider]", () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.message).toBe("Webhook processed");
-      expect(mockProcessWebhook).toHaveBeenCalledWith("google_calendar", request);
+      expect(mockProcessWebhook).toHaveBeenCalledWith(
+        "google_calendar",
+        expect.any(Request),
+        expect.objectContaining({
+          bodyText: "",
+          headers: expect.any(Object),
+        })
+      );
     });
 
     test("should process webhook when sync is enabled", async () => {
@@ -185,7 +205,14 @@ describe("/api/webhooks/calendar-subscription/[provider]", () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.message).toBe("Webhook processed");
-      expect(mockProcessWebhook).toHaveBeenCalledWith("google_calendar", request);
+      expect(mockProcessWebhook).toHaveBeenCalledWith(
+        "google_calendar",
+        expect.any(Request),
+        expect.objectContaining({
+          bodyText: "",
+          headers: expect.any(Object),
+        })
+      );
     });
 
     test("should process webhook when both cache and sync are enabled", async () => {
@@ -209,7 +236,14 @@ describe("/api/webhooks/calendar-subscription/[provider]", () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.message).toBe("Webhook processed");
-      expect(mockProcessWebhook).toHaveBeenCalledWith("google_calendar", request);
+      expect(mockProcessWebhook).toHaveBeenCalledWith(
+        "google_calendar",
+        expect.any(Request),
+        expect.objectContaining({
+          bodyText: "",
+          headers: expect.any(Object),
+        })
+      );
     });
   });
 

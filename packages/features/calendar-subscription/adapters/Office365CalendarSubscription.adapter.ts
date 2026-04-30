@@ -252,7 +252,13 @@ export class Office365CalendarSubscriptionAdapter implements ICalendarSubscripti
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       log.error("Graph API error", { method, endpoint: this.stripBase(url), status: res.status, text });
-      throw new Error(`Graph ${res.status} ${res.statusText}`);
+      const err = new Error(`Graph ${res.status} ${res.statusText}`) as Error & {
+        providerResponse: string;
+        statusCode: number;
+      };
+      err.providerResponse = text;
+      err.statusCode = res.status;
+      throw err;
     }
 
     if (method === "DELETE" || res.status === 204) return {} as T;

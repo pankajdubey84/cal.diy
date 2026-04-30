@@ -14,11 +14,17 @@ import type { ITeamFeatureRepository } from "@calcom/features/flags/repositories
 import type { IUserFeatureRepository } from "@calcom/features/flags/repositories/PrismaUserFeatureRepository";
 import type { ISelectedCalendarRepository } from "@calcom/features/selectedCalendar/repositories/SelectedCalendarRepository.interface";
 import logger from "@calcom/lib/logger";
+import { errorDetailsForLogs } from "@calcom/lib/safeStringify";
 import type { SelectedCalendar } from "@calcom/prisma/client";
 import { metrics } from "@sentry/nextjs";
 
 // biome-ignore lint/nursery/useExplicitType: logger type is inferred
 const log = logger.getSubLogger({ prefix: ["CalendarSubscriptionService"] });
+
+export type CalendarWebhookRequestDiagnostics = {
+  bodyText: string;
+  headers: Record<string, string>;
+};
 
 export class CalendarSubscriptionService {
   static CALENDAR_SUBSCRIPTION_CACHE_FEATURE = "calendar-subscription-cache" as const;
@@ -141,7 +147,11 @@ export class CalendarSubscriptionService {
    * Process webhook
    */
   // biome-ignore lint/complexity/noExcessiveLinesPerFunction: webhook processing requires multiple steps
-  async processWebhook(provider: CalendarSubscriptionProvider, request: Request) {
+  async processWebhook(
+    provider: CalendarSubscriptionProvider,
+    request: Request,
+    webhookDiagnostics?: CalendarWebhookRequestDiagnostics
+  ) {
     const startTime = performance.now();
     log.debug("processWebhook", { provider });
 
@@ -153,6 +163,12 @@ export class CalendarSubscriptionService {
         metrics.count("calendar.subscription.webhook.invalid", 1, {
           attributes: { provider },
         });
+        log.error("Calendar webhook request failed validation", {
+          provider,
+          stage: "validation",
+          requestBody: webhookDiagnostics?.bodyText,
+          requestHeaders: webhookDiagnostics?.headers,
+        });
         throw new Error("Invalid webhook request");
       }
 
@@ -160,6 +176,12 @@ export class CalendarSubscriptionService {
       if (!channelId) {
         metrics.count("calendar.subscription.webhook.missing_channel", 1, {
           attributes: { provider },
+        });
+        log.error("Calendar webhook missing channel id", {
+          provider,
+          stage: "extract_channel_id",
+          requestBody: webhookDiagnostics?.bodyText,
+          requestHeaders: webhookDiagnostics?.headers,
         });
         throw new Error("Missing channel ID in webhook");
       }
@@ -179,7 +201,7 @@ export class CalendarSubscriptionService {
         return null;
       }
 
-      const eventsProcessed = await this.processEvents(selectedCalendar);
+      const eventsProcessed = await this.processEvents(selectedCalendar, webhookDiagnostics);
 
       const durationMs = performance.now() - startTime;
 
@@ -205,10 +227,12 @@ export class CalendarSubscriptionService {
         attributes: { provider, outcome: "error" },
       });
 
-      log.error("Webhook processing failed", {
+      log.error("Calendar webhook processing failed", {
         provider,
         durationMs,
-        error: error instanceof Error ? error.message : "Unknown error",
+        requestBody: webhookDiagnostics?.bodyText,
+        requestHeaders: webhookDiagnostics?.headers,
+        error: errorDetailsForLogs(error),
       });
 
       throw error;
@@ -225,7 +249,10 @@ export class CalendarSubscriptionService {
    * @returns Object with counts of events fetched, cached, and synced, plus propagation lag metrics
    */
   // biome-ignore lint/complexity/noExcessiveLinesPerFunction: event processing requires multiple steps
-  async processEvents(selectedCalendar: SelectedCalendar): Promise<{
+  async processEvents(
+    selectedCalendar: SelectedCalendar,
+    webhookDiagnostics?: CalendarWebhookRequestDiagnostics
+  ): Promise<{
     eventsFetched: number;
     eventsCached: number;
     eventsSynced: number;
@@ -281,6 +308,15 @@ export class CalendarSubscriptionService {
     } catch (err) {
       metrics.count("calendar.subscription.events.fetch.error", 1, {
         attributes: { provider: selectedCalendar.integration },
+      });
+      log.error("Calendar subscription: failed to fetch events from provider", {
+        selectedCalendarId: selectedCalendar.id,
+        channelId: selectedCalendar.channelId,
+        integration: selectedCalendar.integration,
+        externalId: selectedCalendar.externalId,
+        requestBody: webhookDiagnostics?.bodyText,
+        requestHeaders: webhookDiagnostics?.headers,
+        error: errorDetailsForLogs(err),
       });
       await this.deps.selectedCalendarRepository.updateSyncStatus(selectedCalendar.id, {
         syncErrorAt: new Date(),
