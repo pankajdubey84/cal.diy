@@ -1,6 +1,7 @@
 import { authedAdminProcedure } from "../../../procedures/authedProcedure";
 import { router } from "../../../trpc";
 import { ZAdminAssignFeatureToTeamSchema } from "./assignFeatureToTeam.schema";
+import { ZCalendarSyncDiagnosticsInput } from "./calendarSyncDiagnostics.schema";
 import { ZCreateCouponSchema } from "./createCoupon.schema";
 import { ZCreateSelfHostedLicenseSchema } from "./createSelfHostedLicenseKey.schema";
 import { ZAdminGetTeamsForFeatureSchema } from "./getTeamsForFeature.schema";
@@ -68,4 +69,10 @@ export const adminRouter = router({
       return handler(opts);
     }),
   watchlist: watchlistRouter,
+  calendarSyncDiagnostics: authedAdminProcedure
+    .input(ZCalendarSyncDiagnosticsInput)
+    .mutation(async (opts) => {
+      const { default: handler } = await import("./calendarSyncDiagnostics.handler");
+      return handler(opts);
+    }),
 });
