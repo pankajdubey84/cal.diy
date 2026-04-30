@@ -12,6 +12,7 @@ import { ZSetSMSLockState } from "./setSMSLockState.schema";
 import { toggleFeatureFlag } from "./toggleFeatureFlag.procedure";
 import { ZAdminUnassignFeatureFromTeamSchema } from "./unassignFeatureFromTeam.schema";
 import { watchlistRouter } from "./watchlist/_router";
+import { ZRunCalendarSyncDiagnosticSchema } from "./runCalendarSyncDiagnostic.schema";
 
 const NAMESPACE = "admin";
 
@@ -65,6 +66,12 @@ export const adminRouter = router({
     .input(ZAdminUnassignFeatureFromTeamSchema)
     .mutation(async (opts) => {
       const { default: handler } = await import("./unassignFeatureFromTeam.handler");
+      return handler(opts);
+    }),
+  runCalendarSyncDiagnostic: authedAdminProcedure
+    .input(ZRunCalendarSyncDiagnosticSchema)
+    .mutation(async (opts) => {
+      const { default: handler } = await import("./runCalendarSyncDiagnostic.handler");
       return handler(opts);
     }),
   watchlist: watchlistRouter,
