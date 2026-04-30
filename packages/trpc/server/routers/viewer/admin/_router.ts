@@ -3,6 +3,7 @@ import { router } from "../../../trpc";
 import { ZAdminAssignFeatureToTeamSchema } from "./assignFeatureToTeam.schema";
 import { ZCreateCouponSchema } from "./createCoupon.schema";
 import { ZCreateSelfHostedLicenseSchema } from "./createSelfHostedLicenseKey.schema";
+import { ZExportSupportBookingsCsvSchema } from "./exportSupportBookingsCsv.schema";
 import { ZAdminGetTeamsForFeatureSchema } from "./getTeamsForFeature.schema";
 import { ZListMembersSchema } from "./listPaginated.schema";
 import { ZAdminLockUserAccountSchema } from "./lockUserAccount.schema";
@@ -66,6 +67,12 @@ export const adminRouter = router({
     .mutation(async (opts) => {
       const { default: handler } = await import("./unassignFeatureFromTeam.handler");
       return handler(opts);
+    }),
+  createSupportBookingsCsvExport: authedAdminProcedure
+    .input(ZExportSupportBookingsCsvSchema)
+    .mutation(async (opts) => {
+      const { default: handler } = await import("./exportSupportBookingsCsv.handler");
+      return handler({ input: opts.input });
     }),
   watchlist: watchlistRouter,
 });

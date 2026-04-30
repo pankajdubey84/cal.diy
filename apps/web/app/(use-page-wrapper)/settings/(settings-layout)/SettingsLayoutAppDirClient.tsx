@@ -213,6 +213,11 @@ const getTabs = (
           trackingMetadata: { section: "admin", page: "users" },
         },
         {
+          name: "booking_export_support",
+          href: "/settings/admin/bookings-export",
+          trackingMetadata: { section: "admin", page: "booking_export_support" },
+        },
+        {
           name: "lockedSMS",
           href: "/settings/admin/lockedSMS",
           trackingMetadata: { section: "admin", page: "locked_sms" },
