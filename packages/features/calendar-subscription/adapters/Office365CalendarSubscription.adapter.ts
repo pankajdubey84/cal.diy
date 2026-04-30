@@ -88,11 +88,20 @@ export class Office365CalendarSubscriptionAdapter implements ICalendarSubscripti
     if (validationToken) return true;
 
     // validate notifications
-    const clientState =
-      request?.headers?.get("clientState") ??
-      (typeof request?.body === "object" && request.body !== null && "clientState" in request.body
-        ? (request.body as { clientState?: string }).clientState
-        : undefined);
+    let clientState = request?.headers?.get("clientState") ?? request?.headers?.get("ClientState") ?? undefined;
+    if (!clientState) {
+      try {
+        const json: unknown = await request.clone().json();
+        if (json && typeof json === "object" && "clientState" in json) {
+          const raw = (json as { clientState?: unknown }).clientState;
+          if (typeof raw === "string") {
+            clientState = raw;
+          }
+        }
+      } catch {
+        // body may be empty or non-JSON
+      }
+    }
     if (!this.webhookToken) {
       log.warn("MICROSOFT_WEBHOOK_TOKEN missing");
       return false;
@@ -105,16 +114,28 @@ export class Office365CalendarSubscriptionAdapter implements ICalendarSubscripti
   }
 
   async extractChannelId(request: Request): Promise<string | null> {
-    let id: string | null = null;
-    if (request?.body && typeof request.body === "object" && "subscriptionId" in request.body) {
-      id = (request.body as { subscriptionId?: string }).subscriptionId ?? null;
-    } else if (request?.headers?.get("subscriptionId")) {
-      id = request.headers.get("subscriptionId");
+    const fromHeader = request.headers.get("subscriptionId");
+    if (fromHeader) return fromHeader;
+
+    try {
+      const json: unknown = await request.clone().json();
+      if (json && typeof json === "object") {
+        const record = json as Record<string, unknown>;
+        if (typeof record.subscriptionId === "string") {
+          return record.subscriptionId;
+        }
+        const value = record.value;
+        if (Array.isArray(value) && value[0] && typeof value[0] === "object") {
+          const sub = (value[0] as { subscriptionId?: string }).subscriptionId;
+          if (typeof sub === "string") return sub;
+        }
+      }
+    } catch {
+      // ignore
     }
-    if (!id) {
-      log.warn("subscriptionId missing in webhook");
-    }
-    return id;
+
+    log.warn("subscriptionId missing in webhook");
+    return null;
   }
 
   async subscribe(
@@ -252,7 +273,11 @@ export class Office365CalendarSubscriptionAdapter implements ICalendarSubscripti
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       log.error("Graph API error", { method, endpoint: this.stripBase(url), status: res.status, text });
-      throw new Error(`Graph ${res.status} ${res.statusText}`);
+      const err = new Error(`Graph ${res.status} ${res.statusText}`) as Error & {
+        providerResponseBody?: string;
+      };
+      err.providerResponseBody = text.slice(0, 16_000);
+      throw err;
     }
 
     if (method === "DELETE" || res.status === 204) return {} as T;

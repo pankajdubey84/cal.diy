@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { getCredentialForSelectedCalendar } from "@calcom/app-store/delegationCredential";
 import type {
   AdapterFactory,
@@ -7,6 +9,11 @@ import type {
   CalendarCredential,
   CalendarSubscriptionEvent,
 } from "@calcom/features/calendar-subscription/lib/CalendarSubscriptionPort.interface";
+import {
+  bufferWebhookRequestForLogging,
+  serializeErrorForSupportLog,
+  serializeProviderFetchError,
+} from "@calcom/features/calendar-subscription/lib/calendarWebhookDebug";
 import type { CalendarCacheEventService } from "@calcom/features/calendar-subscription/lib/cache/CalendarCacheEventService";
 import type { CalendarSyncService } from "@calcom/features/calendar-subscription/lib/sync/CalendarSyncService";
 import type { IFeatureRepository } from "@calcom/features/flags/repositories/PrismaFeatureRepository";
@@ -141,30 +148,52 @@ export class CalendarSubscriptionService {
    * Process webhook
    */
   // biome-ignore lint/complexity/noExcessiveLinesPerFunction: webhook processing requires multiple steps
-  async processWebhook(provider: CalendarSubscriptionProvider, request: Request) {
+  async processWebhook(
+    provider: CalendarSubscriptionProvider,
+    request: Request,
+    meta?: { httpCorrelationId?: string | null }
+  ) {
     const startTime = performance.now();
-    log.debug("processWebhook", { provider });
+    const webhookRequestId = randomUUID();
+    log.debug("processWebhook", { provider, webhookRequestId, httpCorrelationId: meta?.httpCorrelationId });
+
+    const { replayRequest, debugContext } = await bufferWebhookRequestForLogging(webhookRequestId, request);
+
+    const logBase = {
+      ...debugContext,
+      httpCorrelationId: meta?.httpCorrelationId ?? null,
+    };
 
     try {
       const calendarSubscriptionAdapter = this.deps.adapterFactory.get(provider);
 
-      const isValid = await calendarSubscriptionAdapter.validate(request);
+      const isValid = await calendarSubscriptionAdapter.validate(replayRequest);
       if (!isValid) {
         metrics.count("calendar.subscription.webhook.invalid", 1, {
           attributes: { provider },
         });
+        log.error("Calendar webhook validation failed", {
+          stage: "validation",
+          provider,
+          ...logBase,
+        });
         throw new Error("Invalid webhook request");
       }
 
-      const channelId = await calendarSubscriptionAdapter.extractChannelId(request);
+      const channelId = await calendarSubscriptionAdapter.extractChannelId(replayRequest);
       if (!channelId) {
         metrics.count("calendar.subscription.webhook.missing_channel", 1, {
           attributes: { provider },
         });
+        log.error("Calendar webhook missing channel id", {
+          stage: "missing_channel",
+          provider,
+          ...logBase,
+        });
         throw new Error("Missing channel ID in webhook");
       }
 
-      log.debug("Processing webhook", { channelId });
+      log.debug("Processing webhook", { channelId, webhookRequestId });
 
       const selectedCalendar = await this.deps.selectedCalendarRepository.findByChannelId(channelId);
       if (!selectedCalendar) {
@@ -208,7 +237,9 @@ export class CalendarSubscriptionService {
       log.error("Webhook processing failed", {
         provider,
         durationMs,
-        error: error instanceof Error ? error.message : "Unknown error",
+        ...logBase,
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        error: serializeErrorForSupportLog(error),
       });
 
       throw error;
@@ -281,6 +312,14 @@ export class CalendarSubscriptionService {
     } catch (err) {
       metrics.count("calendar.subscription.events.fetch.error", 1, {
         attributes: { provider: selectedCalendar.integration },
+      });
+      log.error("Calendar provider event fetch failed (subscription webhook path)", {
+        stage: "provider_fetch",
+        selectedCalendarId: selectedCalendar.id,
+        channelId: selectedCalendar.channelId,
+        integration: selectedCalendar.integration,
+        externalId: selectedCalendar.externalId,
+        providerError: serializeProviderFetchError(err),
       });
       await this.deps.selectedCalendarRepository.updateSyncStatus(selectedCalendar.id, {
         syncErrorAt: new Date(),
