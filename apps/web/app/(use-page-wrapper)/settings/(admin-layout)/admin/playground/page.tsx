@@ -10,6 +10,12 @@ const LINKS = [
     href: "/settings/admin/playground/date-range-filter",
     icon: "calendar-days" as const,
   },
+  {
+    title: "Calendar feed preview",
+    description: "Fetch an external iCal/WebCal URL server-side and inspect the response (support)",
+    href: "/settings/admin/playground/calendar-feed-preview",
+    icon: "link" as const,
+  },
 ];
 
 export const generateMetadata = async () =>

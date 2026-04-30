@@ -11,6 +11,7 @@ import { ZAdminPasswordResetSchema } from "./sendPasswordReset.schema";
 import { ZSetSMSLockState } from "./setSMSLockState.schema";
 import { toggleFeatureFlag } from "./toggleFeatureFlag.procedure";
 import { ZAdminUnassignFeatureFromTeamSchema } from "./unassignFeatureFromTeam.schema";
+import { ZPreviewCalendarFeedSchema } from "./previewCalendarFeed.schema";
 import { watchlistRouter } from "./watchlist/_router";
 
 const NAMESPACE = "admin";
@@ -67,5 +68,9 @@ export const adminRouter = router({
       const { default: handler } = await import("./unassignFeatureFromTeam.handler");
       return handler(opts);
     }),
+  previewCalendarFeed: authedAdminProcedure.input(ZPreviewCalendarFeedSchema).mutation(async (opts) => {
+    const { default: handler } = await import("./previewCalendarFeed.handler");
+    return handler(opts);
+  }),
   watchlist: watchlistRouter,
 });
