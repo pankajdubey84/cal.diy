@@ -913,6 +913,47 @@ describe("Bookings Endpoints 2024-08-13", () => {
           });
       });
 
+      it("should support-search bookings by partial attendee email", async () => {
+        return request(app.getHttpServer())
+          .get(`/v2/bookings/support-search?attendeeEmail=oldie`)
+          .set(CAL_API_VERSION_HEADER, VERSION_2024_08_13)
+          .expect(200)
+          .then(async (response) => {
+            const responseBody: GetBookingsOutput_2024_08_13 = response.body;
+            expect(responseBody.status).toEqual(SUCCESS_STATUS);
+            expect(responseBody.data).toBeDefined();
+            const data: (
+              | BookingOutput_2024_08_13
+              | RecurringBookingOutput_2024_08_13
+              | GetSeatedBookingOutput_2024_08_13
+            )[] = responseBody.data;
+            expect(data.length).toEqual(1);
+            expect(data[0].uid).toEqual(bookingInThePast.uid);
+          });
+      });
+
+      it("should support-search bookings by title, status, and date range", async () => {
+        return request(app.getHttpServer())
+          .get(
+            `/v2/bookings/support-search?eventTitle=peer%20coding%20recurring&status=accepted&startDateFrom=${createdRecurringBooking[1].start}&startDateTo=${createdRecurringBooking[2].start}`
+          )
+          .set(CAL_API_VERSION_HEADER, VERSION_2024_08_13)
+          .expect(200)
+          .then(async (response) => {
+            const responseBody: GetBookingsOutput_2024_08_13 = response.body;
+            expect(responseBody.status).toEqual(SUCCESS_STATUS);
+            expect(responseBody.data).toBeDefined();
+            const data: (
+              | BookingOutput_2024_08_13
+              | RecurringBookingOutput_2024_08_13
+              | GetSeatedBookingOutput_2024_08_13
+            )[] = responseBody.data;
+            expect(data.length).toEqual(2);
+            expect(data[0].status).toEqual("accepted");
+            expect(data[1].status).toEqual("accepted");
+          });
+      });
+
       it("should get bookings by attendee name", async () => {
         return request(app.getHttpServer())
           .get(`/v2/bookings?attendeeName=Mr Proper Recurring`)
