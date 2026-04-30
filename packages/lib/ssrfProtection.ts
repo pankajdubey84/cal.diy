@@ -46,6 +46,8 @@ const ERRORS = {
   BLOCKED_HOSTNAME: "Blocked hostname",
   INVALID_URL: "Invalid URL format",
   NON_IMAGE_DATA_URL: "Non-image data URL",
+  USERINFO_DISALLOWED: "URLs with embedded credentials are not allowed",
+  DNS_LOOKUP_FAILED: "Could not resolve hostname",
 } as const;
 
 function normalizeHostname(hostname: string): string {
@@ -186,6 +188,74 @@ export async function validateUrlForSSRF(urlString: string): Promise<SSRFValidat
     }
   } catch {
     // Allow DNS failures to avoid breaking legitimate hosts with flaky DNS
+  }
+
+  return { isValid: true };
+}
+
+const HTTP_PROTOCOLS_FOR_PUBLIC_FETCH = new Set(["http:", "https:"]);
+
+/**
+ * Validates URLs for admin tooling that must only reach the public internet (e.g. external
+ * calendar feed previews). Unlike {@link validateUrlForSSRF}, this always blocks private IPs
+ * after DNS resolution and blocks localhost-style hostnames, even when {@link IS_SELF_HOSTED} is true.
+ */
+export async function validatePublicHttpUrlForFetch(urlString: string): Promise<SSRFValidationResult> {
+  if (process.env.NEXT_PUBLIC_IS_E2E === "1") {
+    try {
+      const url = new URL(urlString);
+      const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+      if (isLocalhost && HTTP_PROTOCOLS_FOR_PUBLIC_FETCH.has(url.protocol)) {
+        return { isValid: true };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  let url: URL;
+  try {
+    url = new URL(urlString);
+  } catch {
+    return { isValid: false, error: ERRORS.INVALID_URL };
+  }
+
+  if (!HTTP_PROTOCOLS_FOR_PUBLIC_FETCH.has(url.protocol)) {
+    return { isValid: false, error: ERRORS.INVALID_PROTOCOL };
+  }
+
+  if (url.username || url.password) {
+    return { isValid: false, error: ERRORS.USERINFO_DISALLOWED };
+  }
+
+  if (isCloudMetadataEndpoint(url.hostname)) {
+    return { isValid: false, error: ERRORS.BLOCKED_HOSTNAME };
+  }
+
+  if (isBlockedHostname(url.hostname)) {
+    return { isValid: false, error: ERRORS.BLOCKED_HOSTNAME };
+  }
+
+  const hostnameForIPCheck = stripIPv6Brackets(url.hostname);
+  if (ipaddr.isValid(hostnameForIPCheck)) {
+    if (isPrivateIP(hostnameForIPCheck)) {
+      return { isValid: false, error: ERRORS.PRIVATE_IP };
+    }
+    return { isValid: true };
+  }
+
+  try {
+    const addresses = await dns.lookup(url.hostname, { all: true, verbatim: true });
+    if (!addresses.length) {
+      return { isValid: false, error: ERRORS.DNS_LOOKUP_FAILED };
+    }
+    for (const { address } of addresses) {
+      if (isPrivateIP(address)) {
+        return { isValid: false, error: ERRORS.PRIVATE_IP_DNS };
+      }
+    }
+  } catch {
+    return { isValid: false, error: ERRORS.DNS_LOOKUP_FAILED };
   }
 
   return { isValid: true };

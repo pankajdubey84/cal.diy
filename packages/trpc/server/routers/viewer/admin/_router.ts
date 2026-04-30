@@ -6,6 +6,7 @@ import { ZCreateSelfHostedLicenseSchema } from "./createSelfHostedLicenseKey.sch
 import { ZAdminGetTeamsForFeatureSchema } from "./getTeamsForFeature.schema";
 import { ZListMembersSchema } from "./listPaginated.schema";
 import { ZAdminLockUserAccountSchema } from "./lockUserAccount.schema";
+import { ZPreviewExternalCalendarFeedSchema } from "./previewExternalCalendarFeed.schema";
 import { ZAdminRemoveTwoFactor } from "./removeTwoFactor.schema";
 import { ZAdminPasswordResetSchema } from "./sendPasswordReset.schema";
 import { ZSetSMSLockState } from "./setSMSLockState.schema";
@@ -65,6 +66,12 @@ export const adminRouter = router({
     .input(ZAdminUnassignFeatureFromTeamSchema)
     .mutation(async (opts) => {
       const { default: handler } = await import("./unassignFeatureFromTeam.handler");
+      return handler(opts);
+    }),
+  previewExternalCalendarFeed: authedAdminProcedure
+    .input(ZPreviewExternalCalendarFeedSchema)
+    .mutation(async (opts) => {
+      const { default: handler } = await import("./previewExternalCalendarFeed.handler");
       return handler(opts);
     }),
   watchlist: watchlistRouter,

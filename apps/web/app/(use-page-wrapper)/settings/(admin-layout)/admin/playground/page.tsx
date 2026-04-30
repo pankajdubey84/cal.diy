@@ -10,6 +10,12 @@ const LINKS = [
     href: "/settings/admin/playground/date-range-filter",
     icon: "calendar-days" as const,
   },
+  {
+    title: "External calendar feed preview",
+    description: "Fetch a feed URL server-side and inspect the response (support)",
+    href: "/settings/admin/playground/calendar-feed-preview",
+    icon: "calendar-range" as const,
+  },
 ];
 
 export const generateMetadata = async () =>

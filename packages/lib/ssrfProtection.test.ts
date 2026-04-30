@@ -1,3 +1,4 @@
+import dns from "node:dns/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Default mock for Cal.diy SaaS (IS_SELF_HOSTED = false)
@@ -10,6 +11,7 @@ import {
   isBlockedHostname,
   isPrivateIP,
   isTrustedInternalUrl,
+  validatePublicHttpUrlForFetch,
   validateUrlForSSRFSync,
 } from "./ssrfProtection";
 
@@ -130,6 +132,61 @@ describe("validateUrlForSSRFSync", () => {
 
   it("allows public IPv6 addresses", () => {
     expect(validateUrlForSSRFSync("https://[2001:4860:4860::8888]/").isValid).toBe(true);
+  });
+});
+
+describe("validatePublicHttpUrlForFetch", () => {
+  let lookupSpy: ReturnType<typeof vi.spyOn<typeof dns, "lookup">>;
+
+  beforeEach(() => {
+    lookupSpy = vi.spyOn(dns, "lookup");
+  });
+
+  afterEach(() => {
+    lookupSpy.mockRestore();
+  });
+
+  it("rejects credentials in URL", async () => {
+    await expect(validatePublicHttpUrlForFetch("http://user:pass@example.com/x")).resolves.toEqual({
+      isValid: false,
+      error: "URLs with embedded credentials are not allowed",
+    });
+  });
+
+  it("rejects non-http protocols", async () => {
+    await expect(validatePublicHttpUrlForFetch("file:///etc/passwd")).resolves.toEqual({
+      isValid: false,
+      error: "Only HTTP and HTTPS protocols are allowed",
+    });
+  });
+
+  it("rejects literal private IPs", async () => {
+    await expect(validatePublicHttpUrlForFetch("http://10.0.0.1/cal.ics")).resolves.toEqual({
+      isValid: false,
+      error: "Private IP address",
+    });
+  });
+
+  it("rejects blocked hostnames without DNS", async () => {
+    await expect(validatePublicHttpUrlForFetch("http://localhost/cal.ics")).resolves.toEqual({
+      isValid: false,
+      error: "Blocked hostname",
+    });
+  });
+
+  it("rejects when DNS resolves to private IP", async () => {
+    lookupSpy.mockResolvedValue([{ address: "10.0.0.1", family: 4 }]);
+    await expect(validatePublicHttpUrlForFetch("http://example.invalid/cal.ics")).resolves.toEqual({
+      isValid: false,
+      error: "Hostname resolves to private IP",
+    });
+  });
+
+  it("allows HTTP when DNS resolves to public IP", async () => {
+    lookupSpy.mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+    await expect(validatePublicHttpUrlForFetch("http://example.invalid/cal.ics")).resolves.toEqual({
+      isValid: true,
+    });
   });
 });
 
