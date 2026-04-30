@@ -5,6 +5,7 @@ import { CalendarSubscriptionService } from "@calcom/features/calendar-subscript
 import { CalendarCacheEventRepository } from "@calcom/features/calendar-subscription/lib/cache/CalendarCacheEventRepository";
 import { CalendarCacheEventService } from "@calcom/features/calendar-subscription/lib/cache/CalendarCacheEventService";
 import { CalendarSyncService } from "@calcom/features/calendar-subscription/lib/sync/CalendarSyncService";
+import { serializeErrorForSupportLog } from "@calcom/features/calendar-subscription/lib/calendarWebhookDebug";
 import { getFeatureRepository } from "@calcom/features/di/containers/FeatureRepository";
 import { getTeamFeatureRepository } from "@calcom/features/di/containers/TeamFeatureRepository";
 import { getUserFeatureRepository } from "@calcom/features/di/containers/UserFeatureRepository";
@@ -46,6 +47,12 @@ async function postHandler(request: NextRequest, ctx: { params: Promise<Params> 
     return NextResponse.json({ message: "Unsupported provider" }, { status: 400 });
   }
 
+  const httpCorrelationId =
+    request.headers.get("x-vercel-id") ??
+    request.headers.get("x-request-id") ??
+    request.headers.get("cf-ray") ??
+    null;
+
   try {
     // instantiate dependencies
     const bookingRepository = new BookingRepository(prisma);
@@ -78,10 +85,16 @@ async function postHandler(request: NextRequest, ctx: { params: Promise<Params> 
       return NextResponse.json({ message: "No cache or sync enabled" }, { status: 200 });
     }
 
-    await calendarSubscriptionService.processWebhook(providerFromParams, request);
+    await calendarSubscriptionService.processWebhook(providerFromParams, request, {
+      httpCorrelationId,
+    });
     return NextResponse.json({ message: "Webhook processed" }, { status: 200 });
   } catch (error) {
-    log.error("Error processing webhook", { error });
+    log.error("Error processing calendar subscription webhook", {
+      httpCorrelationId,
+      provider: providerFromParams,
+      error: serializeErrorForSupportLog(error),
+    });
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ message }, { status: 500 });
   }

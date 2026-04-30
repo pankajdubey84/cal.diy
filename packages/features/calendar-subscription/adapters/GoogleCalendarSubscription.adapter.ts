@@ -4,6 +4,7 @@ import { v4 as uuid } from "uuid";
 import { CalendarAuth } from "@calcom/app-store/googlecalendar/lib/CalendarAuth";
 import dayjs from "@calcom/dayjs";
 import { CalendarCacheEventService } from "@calcom/features/calendar-subscription/lib/cache/CalendarCacheEventService";
+import { serializeProviderFetchError } from "@calcom/features/calendar-subscription/lib/calendarWebhookDebug";
 import logger from "@calcom/lib/logger";
 import type { SelectedCalendar } from "@calcom/prisma/client";
 
@@ -132,17 +133,25 @@ export class GoogleCalendarSubscriptionAdapter implements ICalendarSubscriptionP
     }
 
     const events: calendar_v3.Schema$Event[] = [];
-    do {
-      const { data }: { data: calendar_v3.Schema$Events } = await client.events.list(params);
+    try {
+      do {
+        const { data }: { data: calendar_v3.Schema$Events } = await client.events.list(params);
 
-      syncToken = data.nextSyncToken || syncToken;
-      pageToken = data.nextPageToken ?? null;
-      if (pageToken) {
-        params.pageToken = pageToken;
-      }
+        syncToken = data.nextSyncToken || syncToken;
+        pageToken = data.nextPageToken ?? null;
+        if (pageToken) {
+          params.pageToken = pageToken;
+        }
 
-      events.push(...(data.items || []));
-    } while (pageToken);
+        events.push(...(data.items || []));
+      } while (pageToken);
+    } catch (err) {
+      log.error("Google Calendar events.list failed during subscription sync", {
+        externalId: selectedCalendar.externalId,
+        providerError: serializeProviderFetchError(err),
+      });
+      throw err;
+    }
 
     return {
       provider: "google_calendar",

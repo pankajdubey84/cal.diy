@@ -299,8 +299,8 @@ describe("CalendarSubscriptionService", () => {
 
       await service.processWebhook("google_calendar", mockRequest);
 
-      expect(mockAdapter.validate).toHaveBeenCalledWith(mockRequest);
-      expect(mockAdapter.extractChannelId).toHaveBeenCalledWith(mockRequest);
+      expect(mockAdapter.validate).toHaveBeenCalledWith(expect.any(Request));
+      expect(mockAdapter.extractChannelId).toHaveBeenCalledWith(expect.any(Request));
       expect(mockSelectedCalendarRepository.findByChannelId).toHaveBeenCalledWith("test-channel-id");
     });
 

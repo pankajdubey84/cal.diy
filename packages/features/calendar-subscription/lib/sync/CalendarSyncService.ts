@@ -3,8 +3,11 @@ import { IdempotencyKeyService } from "@calcom/lib/idempotencyKey/idempotencyKey
 import handleCancelBooking from "@calcom/features/bookings/lib/handleCancelBooking";
 import type { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
 import type { CalendarSubscriptionEventItem } from "@calcom/features/calendar-subscription/lib/CalendarSubscriptionPort.interface";
+import {
+  primaryBookerEmailForLog,
+  serializeErrorForSupportLog,
+} from "@calcom/features/calendar-subscription/lib/calendarWebhookDebug";
 import logger from "@calcom/lib/logger";
-import { safeStringify } from "@calcom/lib/safeStringify";
 import type { SelectedCalendar } from "@calcom/prisma/client";
 import { metrics } from "@sentry/nextjs";
 
@@ -85,8 +88,9 @@ export class CalendarSyncService {
       return;
     }
 
+    let booking: BookingWithEventType | null = null;
     try {
-      const booking = await this.deps.bookingRepository.findBookingByUidWithEventType({ bookingUid });
+      booking = await this.deps.bookingRepository.findBookingByUidWithEventType({ bookingUid });
       if (!booking) {
         log.debug("Unable to sync, booking not found in database", { bookingUid });
         return;
@@ -136,7 +140,18 @@ export class CalendarSyncService {
         attributes: { status: "success" },
       });
     } catch (error) {
-      log.error("Failed to cancel booking from calendar sync", { bookingUid, error: safeStringify(error) });
+      log.error("Failed to cancel booking from calendar sync", {
+        bookingUid,
+        bookingId: booking?.id ?? null,
+        attendeeEmail: booking ? primaryBookerEmailForLog(booking) : null,
+        calendarEvent: {
+          iCalUID: event.iCalUID,
+          status: event.status,
+          summary: event.summary,
+          externalEventId: event.id,
+        },
+        error: serializeErrorForSupportLog(error),
+      });
 
       metrics.count("calendar.sync.cancelBooking.calls", 1, {
         attributes: { status: "error" },
@@ -160,8 +175,9 @@ export class CalendarSyncService {
       return;
     }
 
+    let booking: BookingWithEventType | null = null;
     try {
-      const booking = await this.deps.bookingRepository.findBookingByUidWithEventType({ bookingUid });
+      booking = await this.deps.bookingRepository.findBookingByUidWithEventType({ bookingUid });
       if (!booking) {
         log.debug("Unable to sync, booking not found in database", { bookingUid });
         return;
@@ -222,7 +238,15 @@ export class CalendarSyncService {
     } catch (error) {
       log.error("Failed to reschedule booking from calendar sync", {
         bookingUid,
-        error: safeStringify(error),
+        bookingId: booking?.id ?? null,
+        attendeeEmail: booking ? primaryBookerEmailForLog(booking) : null,
+        calendarEvent: {
+          iCalUID: event.iCalUID,
+          status: event.status,
+          summary: event.summary,
+          externalEventId: event.id,
+        },
+        error: serializeErrorForSupportLog(error),
       });
 
       metrics.count("calendar.sync.rescheduleBooking.calls", 1, {
